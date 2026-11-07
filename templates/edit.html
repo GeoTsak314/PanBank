@@ -1,0 +1,37 @@
+{% extends 'base.html' %}{% block title %}{{'Edit' if id else 'New'}} — {{name}}{% endblock %}{% block content %}<form method="post" class="card" autocomplete="off"><input type="hidden" name="csrf" value="{{csrf}}"><div class="form-grid">{% for f in fields %}{% if name=='Expense register' and f.key=='category_id' %}<label>Cat group<select id='cat-group'><option value=''>Select parent group</option>{% for gid,gname in expense_groups %}<option value='{{gid}}' {{'selected' if gid==selected_parent else ''}}>{{gname}}</option>{% endfor %}</select></label>{% endif %}<label>{{f.label}}{% if f.options %}<select name="{{f.key}}" id="field-{{f.key}}"><option value="">(none)</option>{% for k,v in f.options %}<option value="{{k}}" {{'selected' if (f.value|string)==(k|string) else ''}}>{{v}}</option>{% endfor %}</select>{% elif f.typ=='bool' %}<select name="{{f.key}}"><option value="1" {{'selected' if f.value==1 or f.value=='1' else ''}}>Yes</option><option value="0" {{'selected' if f.value==0 or f.value=='0' else ''}}>No</option></select>{% elif f.key=='notes' %}<textarea name="{{f.key}}">{{f.value}}</textarea>{% elif f.typ=='date' %}<input type="date" name="{{f.key}}" value="{{f.value}}" required>{% else %}<input name="{{f.key}}" value="{{f.value}}" {{'required' if f.key in ['name','tx_date','snapshot_date','paid_date','first_due'] else ''}} placeholder="{{'1345.50 (dot decimal)' if f.typ=='money' else ''}}"></label>{% endif %}{% if f.options or f.typ=='bool' or f.key=='notes' or f.typ=='date' %}</label>{% endif %}{% endfor %}</div><div class="toolbar"><button>Save record</button><a class="button secondary" href="/records/{{name|urlencode}}">Cancel</a></div></form>
+{% if name=='Categories' %}<p class="muted">Annual income allocation applies to categories marked Income. Every income transaction in that category is spread analytically over all 12 months of its calendar year. Actual cash records stay unchanged.</p>{% endif %}
+<script>
+// Client-side convenience filters only; server-side category validation remains authoritative.
+const meta={{category_meta|tojson}};
+const kind=document.getElementById('field-kind');
+const budget=document.getElementById('field-category_id');
+const parent=document.getElementById('field-parent_id');
+const catGroup=document.getElementById('cat-group');
+function syncCategories(){
+  if(budget && kind){
+    [...budget.options].forEach(o=>{
+      if(!o.value)return;
+      const m=meta[o.value];
+      let allow=m && m.kind===kind.value;
+      if(allow && {{'true' if name=='Annual budgets' else 'false'}}){
+        allow=kind.value==='expense'?m.parent!=null:
+          !Object.values(meta).some(x=>x.parent===Number(o.value));
+      }
+      o.hidden=!allow;o.disabled=!allow;
+    });
+    if(budget.selectedOptions.length && budget.selectedOptions[0].disabled)budget.value='';
+  }
+  if(parent && kind){
+    [...parent.options].forEach(o=>{if(!o.value)return;let m=meta[o.value];o.hidden=o.disabled=!(m&&m.kind===kind.value&&m.parent==null)});
+    if(parent.selectedOptions.length && parent.selectedOptions[0].disabled)parent.value='';
+  }
+  if(catGroup && budget){
+    [...budget.options].forEach(o=>{if(!o.value)return;let m=meta[o.value];o.hidden=o.disabled=!(m&&String(m.parent)===catGroup.value)});
+    if(budget.selectedOptions.length&&budget.selectedOptions[0].disabled)budget.value='';
+  }
+}
+if(kind)kind.addEventListener('change',syncCategories);
+if(catGroup)catGroup.addEventListener('change',syncCategories);
+syncCategories();
+</script>
+{% endblock %}

@@ -1,0 +1,9 @@
+*.sqlite3
+*.sqlite3-*
+.env
+__pycache__/
+.venv/
+*.pyc
+
+panbank_settings.json
+panbank_db_config.json

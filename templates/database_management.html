@@ -1,0 +1,28 @@
+{% extends 'base.html' %}{% block title %}Settings — Database Management{% endblock %}{% block content %}
+<div class="card">
+<h2>Active SQLite database</h2>
+<p><code>{{database}}</code></p>
+<p class="muted">This is a server-local database, not a file on your phone or browser. The selected file must already exist. No financial records are uploaded or copied.</p>
+{% if configured and configured != database %}<p class="warning"><strong>Restart required.</strong> Pending selection: <code>{{configured}}</code>. The server is still using the active file above.</p>{% endif %}
+</div>
+<div class="card">
+<h2>Choose an existing database</h2>
+<p>These files were found in authorized server directories. You can also enter an absolute path inside one of those directories.</p>
+<form method="post" action="/settings/database" class="form-grid">
+<input type="hidden" name="csrf" value="{{csrf}}">
+<label>Existing server SQLite file
+<select id="existing-db" onchange="if(this.value)document.getElementById('database-path').value=this.value">
+<option value="">Select an existing file…</option>
+{% for file in options %}<option value="{{file}}">{{file}}</option>{% endfor %}
+</select></label>
+<label>Full server file path<input required id="database-path" name="database_path" value="{{configured or database}}" autocomplete="off" spellcheck="false"></label>
+<label>Safety confirmation (type SWITCH)<input required name="confirmation" pattern="SWITCH" placeholder="SWITCH" autocomplete="off"></label>
+<div><button>Validate and use after server restart</button></div>
+</form>
+<p class="warning">The app checks the SQLite header, integrity, and required PanBank tables. It never creates an empty database through this page. Back up your current database before changing versions or switching files. Existing database connections finish using the old file until restart.</p>
+</div>
+<div class="card"><h2>Authorized server directories</h2><ul>{% for folder in roots %}<li><code>{{folder}}</code></li>{% endfor %}</ul>
+<p class="muted">To allow another directory, set <code>PANBANK_DB_ALLOWED_DIRS</code> on the server (multiple paths separated by the operating system path separator), then restart. Browsers cannot browse arbitrary server directories for security reasons.</p>
+<form method="post" action="/settings/database/default"><input type="hidden" name="csrf" value="{{csrf}}"><input required name="confirmation" pattern="DEFAULT" placeholder="Type DEFAULT"><button class="secondary">Restore default location after restart</button></form>
+</div>
+{% endblock %}

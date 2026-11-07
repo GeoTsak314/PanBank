@@ -1,154 +1,263 @@
-# PanBank v3.1 (by G. Tsakalos)
+# PanBank Web v4.0.3 (by G. Tsakalos)
+
+**PanBank** is a single-user, self-hosted personal financial planning and management application built with **Python, FastAPI and SQLite**. It runs as a web service, with one responsive browser interface for Windows/Linux desktops and Android phones/tablets. The authoritative `panbank.sqlite3` database resides on the computer or server running PanBank; browsers never open the database directly.
+
+> **Release status:** v4.0.3 is a runnable **web migration preview**, not yet a fully validated replacement for desktop PanBank v3.2.17. The final upgrade will be soon available.
 
 ## Features
 
-PanBank is an **offline single-user personal finance manager** built with Python, PySide6 (Qt), and SQLite. Its primary accounting method is **manually entered month-end account snapshots**; it does not infer bank balances from individual transactions.
+### Dashboard and account-snapshot reconciliation
 
-### Dashboard and monthly reconciliation
-- Select a month and year to view opening and closing source balances, registered income, registered expenses, and estimated unregistered daily expenses.
-- Calculate estimated unregistered expenses using the original rule: **previous month-end sources − current month-end sources + current-month registered incomes − current-month registered expenses**.
-- Review all 12 months in a yearly table, including opening/closing snapshot counts. A warning appears when opening or closing month snapshots are absent; partially missing account snapshots require manual checking.
+- Monthly Dashboard with selected year/month, opening and closing account balances, income, registered expenses and estimated **unregistered expenses**.
+- Account balances are **manually recorded snapshots**, not balances derived automatically from transactions. The opening snapshot is dated on the **first day of the selected month**, and the closing snapshot on the **first day of the next month**. For September 2026: **01/09/2026 → 01/10/2026**.
+- Original calculation, using the *allocated* income/expense amounts described below:
 
-### Transactions, accounts, and budgets
-- Add, edit, delete, filter, and export records in the **Income** and **Expense** registers. Dated records appear newest first.
-- Maintain **Accounts**, **Payment methods**, and manually recorded **Monthly snapshots** as separate registers. Payment methods can be linked to accounts without treating them as income or expenses.
-- Maintain **annual income and expense budgets** and compare planned amounts with recorded actual transactions in **Budget vs Actual**.
-- Organize expense categories into **root categories and second-level subcategories**. Expense transactions and expense budgets must use a second-level category; root totals are calculated from subcategories.
-- Manage category lists and other reference records through the Settings and relevant register tabs.
+  ```text
+  Unregistered expenses = opening source balances
+                        - closing source balances
+                        + Dashboard income
+                        - Dashboard registered expenses
+  ```
 
-### Search, filtering, and charts
-- Apply a **Filter** to each editable register to narrow displayed records by field and text.
-- Use **Global Search** to find records across registers using free-text search, an optional exact EUR amount, and a register selector; clear the search with one click.
-- Display six selectable charts: monthly income vs registered expenses, estimated unregistered expenses, month-end source balances, annual income vs expenses, expenses by root category, and budget vs actual expenses. Choose the reporting year where applicable.
+- Dashboard exposes **actual cash flows separately from allocated (smoothed) amounts**. Smoothing is an analytical view; it can change a month's estimated unregistered expenses without changing the actual bank cash movement.
+- Month-by-month overview and **Details** views for income, registered expenses and unregistered-expense calculation inputs, including investments and exact-date snapshots.
+- **Year-to-date reconciliation** is calculated from **01 January** to the **latest available first-of-month closing snapshot** (up to 01 January of the following year). Only the completed months within those boundaries are included, instead of summing all monthly results indiscriminately.
+- Missing first-day boundary snapshots are flagged. Account completeness is checked across the two year-to-date endpoints, but accounts omitted from *both* endpoints cannot be detected automatically.
 
-### Investment and debt management
-- Register investment assets, **Buy / Sell / Dividend / Income / Fee** transactions, and manual price valuations.
-- View a **Portfolio** summary with held units, FIFO cost basis, realized and unrealized gains/losses, distributions, and warnings for sales exceeding available units.
-- Track **taxes, loans, and other debts** with one-time or monthly installment schedules, record actual repayments, and view the remaining amount and projected due dates.
+### Annual allocation of income **and** expenses
 
-### Data management and portability
-- Keep data in a local **SQLite** database (`panbank.sqlite3`), created empty beside `panbank.py` by default. Select another database folder from the GUI if desired.
-- **Import and export CSV** from individual registers. Income and expense CSV imports support the documented semicolon-delimited, human-readable templates; other registers use database-field column names.
-- Optionally import selected register sheets from an existing Excel workbook after preview and confirmation; no source workbook records are preloaded.
-- Export all database tables into a new **Excel workbook** and create an SQLite database backup from the **Data & Backups** tab.
-- Access financial-logic guidance from the **Help** menu.
+- In **Settings → Categories**, income categories and **second-level expense subcategories** can be marked `Normal` or **Annual / spread across 12 months** (`annual_12`). Expense parent categories remain aggregation-only.
+- Example: a €1,200 bonus received in April 2026 contributes **€100 allocated income** to each calendar month of 2026. The actual income transaction remains **€1,200 dated April**.
+- The same applies to an annual €1,200 expense paid in April: its allocated expense is €100 per month; the original expense record remains untouched.
+- Allocation occurs within the transaction's calendar year and preserves the annual total; rounding differences in cents go to earlier months.
+- Investment cash movements are **not** distributed across 12 months.
+- **Important:** Changing a category's allocation method changes the interpretation of historical reports for transactions belonging to that category. For incomplete years, smoothed income/expense amounts may not reconcile to actual bank cash flows.
 
-**Scope:** PanBank does not automatically synchronize bank transactions, market prices, or exchange rates. The SQLite database and backup files are not encrypted by the app.
+### Transactions and reference data
 
-# PanBank - Python / PySide6 / SQLite
+- Create, view, edit and delete income and expense transactions and other supported registers from the browser.
+- Two-level expense categorization: root/parent categories aggregate totals; expenses belong to **second-level subcategories**. Expense entry includes **Cat group → Category** dependent selection.
+- Maintain **Accounts**, **Payment methods**, **Currencies**, and **Monthly snapshots** as separate financial reference/register data.
+- Dated registers support sorting; register pages have column/text search filtering. The desktop's full Excel-style per-column checkbox filtering has **not yet** been ported.
+- Expense and income CSV template imports and individual-register CSV exports are supported. Imports use the application's expected headers and the existing referenced categories/accounts/payment methods.
+- Transactions are not automatically generated by snapshot changes, debt payments or investment entries, except that investment cash flows are **included in Dashboard calculations** as described below; no duplicate income/expense database row is written.
 
-A single-user, offline personal finance assistant desktop app for Windows & Linux.
+### Course: budgets versus actuals
 
-## Install & run
+- Enter annual budgets by income or expense category; expense budgets use second-level categories, with parent totals derived from their children.
+- Compare annual planned and actual **registered** amounts in **Course → Budget vs Actual**.
+- Difference conventions are intentionally different:
+  - **Income:** `Actual − Planned` (negative: below income target).
+  - **Expense:** `Planned − Actual` (negative: spending above budget).
+- Investment cash flows are included in Dashboard cash-flow figures, **not** assigned automatically to budget categories. Category budget actuals use dated income/expense register transactions, not the monthly allocations.
 
-Python 3.11 or later (3.14 is supported if compatible wheels for PySide6/openpyxl exist already):
+### Investments
 
-```bash
-cd PanBank
-python -m venv .venv
-```
+- Manage investment assets, transactions (`Buy`, `Sell`, `Dividend`, `Income`, `Fee`) and manually entered asset valuations.
+- Portfolio overview uses **FIFO** holdings/cost basis and distinguishes realized and unrealized performance; insufficient-unit sales are flagged.
+- Investment cash movements enter Dashboard totals **without creating a duplicate income/expense transaction**:
 
-Windows PowerShell:
+  | Investment action | Dashboard cash-flow treatment |
+  |---|---|
+  | Buy | Expense = units × price + fees |
+  | Sell | Income = units × price − fees |
+  | Dividend / Income | Income = units × price − fees |
+  | Fee | Expense = units × price + fees |
+
+- Sale proceeds are **cash income**, not the realized investment profit. **Do not record the same movement again** in the Income or Expense register.
+
+### Debt management
+
+- Track taxes, loans and other debts, including one-time or monthly installment schedules.
+- Record debt payments and view scheduled due dates and remaining balances. Scheduled payments are forecasts; they are not automatically entered as regular expenses.
+
+### Search, charts, and reporting
+
+- Global search across supported registers using text, optional exact amount and register selection.
+- Basic browser charts, sortable record tables and Dashboard detail pages.
+- Some desktop chart types and advanced spreadsheet-like editing/filtering features are still pending migration.
+
+### Database management, backups, and authentication
+
+- Uses a **server-local SQLite database**, `panbank.sqlite3`; no seeded personal finance records.
+- **Settings → Database Management** shows the active database and lets the logged-in user choose an **existing SQLite file on the server** from approved directories, after validation and typing `SWITCH`.
+- The selected database becomes active **after restarting PanBank**, never midway through a request. `DEFAULT` restores the startup default after restart. The selector does not copy/upload/create the selected file.
+- Download a consistent SQLite backup through **Data & Backups**; export individual register data to CSV.
+- **One-time local setup** writes `panbank_settings.json` containing a persistent database directory, session secret and **salted PBKDF2-SHA256 password hash**, **not a plaintext password**.
+- Passwords of any length are supported in v4.0.3, including empty passwords. An empty password is **unsafe**, particularly for remote access.
+- Login/session authentication and request-forgery protection are included. This is **single-user authentication**, not a multi-user accounts/permissions system.
+
+## Requirements
+
+- Windows 10/11 or an Ubuntu/Linux server with Python 3.11+ and network/browser access.
+- Python packages from `requirements.txt`: FastAPI, Uvicorn, Jinja2, python-multipart, itsdangerous and openpyxl.
+- A modern desktop or Android browser. **PySide6 is not required** for this web version.
+- For remote use, a private connection such as **Tailscale**; do not expose the HTTP development service directly to the internet.
+
+## Install and run
+
+### Windows PowerShell
+
+Extract the project into a writable directory (example `C:\PanBank`) and open PowerShell there:
 
 ```powershell
-.venv\Scripts\python.exe -m pip install -r requirements.txt
-.venv\Scripts\python.exe panbank.py
+cd C:\PanBank
+python -m pip install -r requirements.txt
+python panbank.py --setup
+python panbank.py
 ```
 
-Ubuntu MATE:
+`--setup` is needed only initially or when changing the saved password/database directory. It prompts for a password, its confirmation and the directory containing `panbank.sqlite3`. Choose an existing directory; pressing Enter selects the application directory. The password can be any length.
+
+Open **http://127.0.0.1:8765/login** in your browser, then sign in using the configured password. Keep the Python process running while you use the local web app; `Ctrl+C` stops it.
+
+### Ubuntu / Ubuntu Server
 
 ```bash
-sudo apt install python3-venv libxcb-cursor0
+sudo apt update
+sudo apt install python3-venv python3-pip
+mkdir -p ~/PanBankWeb
+cd ~/PanBankWeb
+# Copy the unpacked project files into this folder.
+python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python panbank.py --setup
 .venv/bin/python panbank.py
 ```
 
-On Ubuntu MATE, the application is a native Qt/X11 desktop window. No Snap packages or server are required.
+The default bind address is `127.0.0.1:8765`, accessible on the server itself. For initial access from another computer, use an SSH tunnel:
 
-## Database storage
+```bash
+ssh -L 8765:127.0.0.1:8765 youruser@your-server
+```
 
-The application **creates a new empty SQLite database** on the first run. No records from `PanBankClear.xlsx` are included in the project, in the database schema, or in a seed file.
+Then open **http://127.0.0.1:8765** on that computer. For permanent hosting, run a non-root **systemd** service and use private Tailscale access, ideally with HTTPS. Set `PANBANK_HTTPS=1` **only if** you actually terminate connections over HTTPS; otherwise secure cookies will not be sent over HTTP.
 
-**Default (Windows and Linux):** `panbank.sqlite3` is stored **beside `panbank.py`** in the application folder. You can keep the application and its database together on a portable drive, provided the folder is writable.
+### Subsequent launches
 
-In **Data & Backups**, click **Select database folder…** to switch to an existing database folder or create a fresh empty one. **Use application folder (default)** returns to the portable location. Your choice persists in `panbank_settings.json` next to the script; returning to default deletes that settings file. The optional `PANBANK_HOME` environment variable takes precedence at startup.
+After initial setup, **no repeated environment variable commands are needed**:
 
-**Important for upgrades:** If you replace the *entire* PanBank folder, first back up your database and `panbank_settings.json`. Prefer replacing only the program files while keeping your SQLite database intact. Changing the database folder **does not move your old database or automatically import its records**. To relocate existing records, close PanBank and copy `panbank.sqlite3` (using a backup made from the app is safer), then select its destination folder.
+```powershell
+python panbank.py
+```
 
-If upgrading from v0.1, the old database in your user-profile directory will remain there: the new app will not automatically find or migrate it. Use the new folder selector to point at that existing directory, or back up and relocate it.
+or on Ubuntu:
 
-The `Data & Backups` tab supports safe SQLite backups via SQLite's backup API. Close the application before replacing the live SQLite file with a backup.
+```bash
+.venv/bin/python panbank.py
+```
+
+The login password is entered in the **browser login form**. It is not auto-filled or stored as plaintext in the settings file.
+
+## Database storage and selection
+
+By default, PanBank uses the application folder for `panbank.sqlite3`. `panbank_settings.json` sits alongside `panbank.py` and preserves the chosen database directory, password hash and session secret. Optional environment variables can override startup settings; a saved explicit `database_path` selection made via Database Management takes precedence over `PANBANK_HOME`.
+
+In **Settings → Database Management** (`/settings/database`):
+
+1. Ensure the database file already exists **on the computer/server running PanBank**.
+2. To authorize a custom directory, set `PANBANK_DB_ALLOWED_DIRS` before launching PanBank (Windows directories separated by `;`, Linux directories by `:`). The application directory and configured `PANBANK_HOME` are also eligible locations.
+3. Select an existing database or enter its absolute **server-side** path; type `SWITCH` to confirm.
+4. Restart the Python process. The newly selected database becomes active only then.
+
+To return to the default database, use `DEFAULT` and restart. A missing previously selected database causes a startup error rather than silently creating an empty substitute. Database validation checks the SQLite file and required PanBank tables in read-only mode.
+
+**Security:** Restrict permissions on the database and settings file. On Linux the settings file is created with `0600` permissions; on Windows protect it with account/NTFS permissions. Do **not** publish `panbank_settings.json` or your SQLite file to GitHub. SQLite data and backups are **not encrypted by PanBank**.
 
 ## Recommended starting sequence
 
-1. Create **Categories** for income and expenses. Use `kind=income` or `kind=expense`. A category can optionally belong to an existing parent category. Categories referenced by records cannot be deleted until those references are removed. You may set `Active = off` instead.
-2. Create **Accounts**, using stable names matching source names in your workbook if future import is intended.
-3. Create **Payment methods** and associate each card with an account when appropriate.
-4. Enter **Annual budgets**: one row for each year/type/category. The summary compares those plans with registered actual transactions in the same year.
-5. Enter **Income register** and **Expense register** records.
-6. Enter **Monthly snapshots**: for each account and month, provide a snapshot date and manually determined account balance. Enter the previous month's snapshot as well so the first monthly reconciliation has an opening total.
-7. Enter **Investment assets**, **Investment transactions**, and optional dated **Investment valuations**.
-8. Enter **Debts** and **Debt payments** to track taxes, loans and payment schedules.
+1. Run `--setup`, launch the service and log in.
+2. Start with an **empty test database** or a **backup copy of your validated desktop database**. Avoid pointing the new web code directly at your original live database because its additive schema migrations change the file.
+3. Verify categories, accounts, payment methods and currencies.
+4. Verify **first-day snapshots** for every tracked account, including the January boundary and at least the following month.
+5. Verify income/expense transactions, then their annual allocation settings.
+6. Verify investments, debts and annual budgets.
+7. Compare the Dashboard (allocated and actual cash figures separately), year-to-date figures and Budget vs Actual against your known-good historical reports.
+8. Download a fresh backup before any major import or upgrade.
 
-## Monthly estimated daily expenses
+## Financial calculations and validation notes
 
-The app deliberately keeps the original snapshot-based formula **without** additional adjustments:
+### Monthly snapshot example
 
+For September 2026:
+
+| Component | Date range |
+|---|---|
+| Opening sources | 01/09/2026 |
+| Closing sources | 01/10/2026 |
+| Income and expense transactions | 01/09/2026–30/09/2026 |
+
+```text
+Estimated unregistered expenses
+  = Opening - Closing + Allocated income - Allocated expenses
 ```
-unregistered_daily_expenses = opening_month_source_balances
-                            - closing_month_source_balances
-                            + registered_month_incomes
-                            - registered_month_expenses
-```
 
-The balances use snapshot rows recorded for the preceding month and selected month respectively. For each account the latest dated snapshot in that month is used. All account balances are **manually entered**. The app does not compute balances from transactions.
+An annual-category transaction contributes its **monthly allocated amount**, not necessarily the cash amount that entered/left the account during that month. As a result, the estimate is a **smoothed analytical spending indicator**, not necessarily a literal unrecorded cash expense. Examine the actual cash figures when interpreting unusual values.
 
-**Important:** For a valid comparison, record the same set of financial sources at each month-end. The dashboard warns if either comparison month has no snapshots. It does not yet check for a *partially completed* month (e.g., one out of three accounts missing): always review the displayed snapshot counts. Missing snapshot months are not reliable zero balances. Transfers to investments, credit-card changes, or sources outside the snapshot set can distort the estimate; the formula is displayed as explicitly requested.
+### Year-to-date example
 
-## Income & expense accounting
+For 2026 with valid snapshots on **01/01/2026** and **01/11/2026** (but no later closing boundary), PanBank computes the year-to-date figure for **January–October** from the balance difference across those two dates, plus allocated income and minus allocated registered expenses for completed months January–October. A full-year view uses **01/01/2027** as the closing boundary.
 
-Registered expenses reduce the estimated unregistered amount through the monthly formula, but do **not** automatically adjust source snapshots. A payment medium (PayPal, debit card, credit card) is distinct from a financial source. A credit card payment is not automatically recorded as a second expense; avoid double-recording the same underlying purchase. There is no auto-generated transaction posting from investments or debt payments.
+### Numbers and CSV files
 
-## Investments
+- **Manual amount entry:** dot decimal, e.g. `1345.50` (suitable for the numeric keypad), without thousands separators.
+- **Display:** Greek notation, e.g. `1.345,50 €`.
+- **Income and Expense CSV imports:** Greek notation (`1.345,50`), semicolon delimiter and UTF-8/UTF-8 with BOM. Templates:
 
-- Each investment `Buy` or `Sell` transaction requires a positive **Units** and **Unit price**. Fees are nonnegative EUR amounts. Transactions are sorted by date then ID.
-- Profit/loss is calculated using FIFO purchase lots. Fees increase acquisition cost and reduce sale proceeds.
-- Sales of more units than available are flagged by the portfolio report and are excluded from realized gain calculations.
-- `Dividend` and `Income` actions calculate income as `units × unit_price − fees`; `Fee` actions reduce reported realized return.
-- Latest **Investment valuations** are manually entered prices; unrealized gain/loss equals held units × latest unit price minus FIFO cost basis.
-- This is a portfolio-tracking calculation, not a tax-lot certification or exchange-rate conversion service. Investment cash movements are not automatically part of the monthly source snapshot calculation.
+  ```csv
+  Date;Amount;Group;Providers;Notes
+  ```
 
-## Debts
+  ```csv
+  Date;Amount;Group;Notes;PaymentSource;Median;Seller;InvoiceTo;Fail?
+  ```
 
-Create one debt per tax or loan. `Total owed`, `No. of installments`, and `First due date` determine an *equal monthly* installment schedule. One-time payments use one installment. The Debt payments table records actual payments and reduces the displayed remaining balance. The schedule is indicative: extra payments do not reschedule future installments automatically, and due dates are calculated monthly (not adjusted for weekends/holidays). Register paid amounts in Expense register as well if they are expenses you wish to count in the monthly formula. Do not double-count principal transfers that are not expenses.
+- The expense `Group` field can identify a category as `Parent → Subcategory` when those entries already exist in Settings. Referenced account and payment-method names must also exist.
+- The web importer currently supports **only these two transaction templates**. Imports from other registers and the **legacy Excel workbook importer** are not yet ported to the web interface.
+- Register CSV export uses database-field headers, which may need transformation before reimport through the human-readable template importer. Avoid repeated imports without checking for duplicates.
 
-## Import/export
+## What changed since the desktop version
 
-### Optional original Excel importer
-
-Click `Data & Backups → Import from original Excel` and select your original workbook explicitly. The import dialog supports:
-
-| Sheet | Destination | Details |
+| Area | Desktop v3.2.x | Web v4.0.3 |
 |---|---|---|
-| `A_Incomes` | incomes | Date, Amount, Group, Providers, Notes |
-| `B_Expences` | expenses | Date, Amount, Group, Notes, PaymentSource, Median, Seller, InvoiceTo, Fail? |
-| `C_Sources` | snapshots | Date, Source, Amount, Notes |
-| `D_Invests` | investments | Buy/sell units, price, fees, asset, date, remarks |
+| Interface | PySide6 native desktop | Browser-based, responsive FastAPI web app |
+| Database | Local SQLite | SQLite local to the running web server |
+| Authentication | Local desktop access | Single-user password login; persistent hashed settings |
+| Category allocation | Regular category totals | Annual income and expense smoothing available |
+| Year-to-date unregistered expense | Year summary based on monthly figures / snapshot boundaries | Explicit Jan 1 → latest available first-of-month boundary calculation |
+| Budget income difference | Earlier desktop logic | **Actual − Planned** |
+| Budget expense difference | **Planned − Actual** | **Planned − Actual** |
+| Database selection | Local desktop folder picker | Authenticated, restricted **server-side SQLite file** selector; restart required |
+| CSV | Broader desktop register handling | Income/Expense template import; per-register export |
+| Excel | Legacy `.xlsx` importer and export | Legacy Excel import and full export **not yet ported** |
+| Filtering and charts | Excel-style filtering and six chart views | Basic browser filtering and charts; full parity pending |
 
-The importer **only inserts records after you explicitly select and confirm the sheet**, and it never automatically populates categories, accounts or assets. Lookup names in the Excel must exactly match names already created in PanBank. It previews successful rows and errors and refuses to import any sheet that still has rejected rows. Imports are transactional; an SQL failure rolls the whole batch back. Importing again duplicates records unless uniqueness constraints prevent it. The workbook itself is never edited.
+## Known limitations and future development
 
-Annual budgets and other Excel summary sheets are **not mapped** by the legacy importer (layouts vary); enter budgets directly or use the application's CSV editor import. The importer's objective is reliable register migration, not workbook formula copying.
+- This is **not yet a complete feature-for-feature port** of the desktop release. Advanced Excel-style column-value filtering, legacy Excel import, the full chart library, and spreadsheet-style editing remain incomplete.
+- No automatic bank feeds, market prices, exchange rates, or currency conversion. Non-EUR source balances should not be added to EUR totals without prior conversion.
+- No automatic scheduled backups, automatic import deduplication, or advanced concurrent-edit conflict UI.
+- Debt schedule entries are estimates; partial/extra repayments do not automatically re-amortize loans or map payments to specific installments.
+- Annual-category flags apply retroactively when edited. Compare **actual cash** and **allocated analytical** figures to avoid mistaking smoothing artifacts for irregular spending.
+- Login accepts weak or empty passwords by design, but those are unsafe on any service reachable by other devices. Restrict network access, use HTTPS appropriately, and protect backups and settings.
+- Do not have the old desktop app and new web service simultaneously modify the same SQLite file over a network share. Use a copy for migration testing, then one authoritative server-local database.
 
-### CSV
+## Run automated tests
 
-Every register has `Export CSV` and `Import CSV` buttons. Export a blank/filled register first to obtain the *exact column header names* required for re-import. Foreign-key fields such as `category_id`, `account_id`, `asset_id` use the numeric IDs already present in the destination database. Dates use `YYYY-MM-DD`, monetary values use `123.45` (EUR), and UTF-8 with BOM is used for Windows Excel compatibility. Import is insert-only and transactional, with explicit confirmation.
+From the extracted project directory:
 
-### Excel export
+```bash
+python -m unittest -v test_core_web
+```
 
-`Data & Backups → Export all tables to Excel` produces a new `.xlsx` workbook, one sheet per database table, with editable raw-record export (not a reconstruction of the original formula-driven Excel file).
+On Ubuntu using the virtual environment:
 
-## Limitations / future improvements
+```bash
+.venv/bin/python -m unittest -v test_core_web
+```
 
-The app currently targets EUR monetary amounts and does not automatically download bank feeds, prices, or FX rates. Dates, units and numerical amounts are validated to varying degrees; automated unit tests should be extended before importing a large dataset. The legacy Excel importer does not yet migrate complex tax-history and planning summaries. The snapshot dashboard treats missing balances as missing information rather than inferring them from income or expenses. Debt payment amounts are not matched to specific installments. Additions such as search/filter controls on large tables, partial-month completeness validation, FX conversion, transaction-to-debt linking, and richer charts are natural next releases.
+**Validation principle:** compare historical monthly snapshot calculations, year boundaries, budget signs, investment-derived cash flows and category allocations against independently verified figures before treating the web version as production-stable.
 
-For sensitive account information, protect your computer login and disk. SQLite database files and backups are not encrypted by this application.
+---
+
+**Copyright:** © G. Tsakalos. PanBank Web v4.0.3. This README documents the web-based application; older PySide6-specific release notes and instructions have been superseded.
