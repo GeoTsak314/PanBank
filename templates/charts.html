@@ -1,2 +1,29 @@
-{% extends 'base.html' %}{% block title %}Charts{% endblock %}{% block content %}<form method="get" class="toolbar"><select name="chart"><option value="flow" {{'selected' if chart=='flow' else ''}}>Income vs expenses</option><option value="unregistered" {{'selected' if chart=='unregistered' else ''}}>Unregistered expenses</option><option value="balances" {{'selected' if chart=='balances' else ''}}>Closing balances</option></select><input name="year" type="number" value="{{year}}"><button>View</button></form><div class="card"><div id="plot" style="height:350px;display:flex;align-items:end;gap:10px;border-bottom:1px solid #aaa;padding:20px 12px 30px;position:relative"></div></div>
-<script>let a={{series|tojson}},b={{series2|tojson}},p=document.getElementById('plot');let max=Math.max(1,...a.map(Math.abs),...(b||[]).map(Math.abs));for(let i=0;i<12;i++){let c=document.createElement('div');c.style.cssText='flex:1;display:flex;align-items:end;justify-content:center;position:relative;height:100%;gap:2px';let vals=b?[a[i],b[i]]:[a[i]];vals.forEach((v,j)=>{let bar=document.createElement('div');bar.style.cssText='flex:1;min-width:2px;background:'+(j?'#df9d63':'#3679ae')+';height:'+Math.max(1,Math.abs(v)/max*100)+'%;opacity:'+(v<0?.45:1);bar.title=(v/100).toFixed(2)+' EUR';c.append(bar)});let label=document.createElement('span');label.textContent=i+1;label.style.cssText='position:absolute;bottom:-22px;font:11px sans-serif;color:#637587';c.append(label);p.append(c)}</script><p class="muted">Blue: allocated income or selected series; orange: registered expenses. Annual allocation and incomplete snapshots can affect chart interpretation.</p>{% endblock %}
+{% extends 'base.html' %}{% block title %}Charts{% endblock %}{% block content %}
+<form method="get" class="toolbar"><label>Chart <select name="chart">
+{% for value,label in [('flow','Monthly income vs expenses'),('unregistered','Unregistered expenses by month'),('balances','Monthly closing balances'),('annual_flow','Annual income vs expenses (5 years)'),('expense_roots','Expenses by root category'),('budget_expenses','Budget vs actual expenses')] %}<option value="{{value}}" {{'selected' if chart==value else ''}}>{{label}}</option>{% endfor %}
+</select></label><label>Year <select name="year">{% for y in years %}<option value="{{y}}" {{'selected' if y==year else ''}}>{{y}}</option>{% endfor %}</select></label><button>View</button></form>
+<div class="card"><div class="muted" style="margin-bottom:10px"><span style="color:#3679ae">■</span> {{legend1}} {% if series2 is not none %}<span style="color:#df9d63">■</span> {{legend2}}{% endif %}</div><div class="table-wrap" style="overflow-x:auto"><div id="chart" class="{{'horizontal-chart' if chart=='budget_expenses' else ''}}" role="img" aria-label="Financial chart" style="min-height:310px;min-width:600px;display:flex;gap:9px;align-items:end;padding:18px 10px 35px;border-bottom:1px solid #b9cbd7"></div></div></div>
+<p class="muted">Hover over bars to view exact amounts. Income and expense flow charts use actual dated cash movements; expense category and budget charts use registered expense transactions only. Missing balance snapshots are shown as gaps.</p>
+<script>
+const labels={{labels|tojson}},a={{series|tojson}},b={{series2|tojson}},el=document.getElementById('chart');
+const valid=[...a,...(b||[])].filter(v=>v!==null&&Number.isFinite(v));const mx=Math.max(1,...valid.map(v=>Math.abs(v)));
+const greek=v=>(v/100).toLocaleString('el-GR',{minimumFractionDigits:2,maximumFractionDigits:2})+' €';
+if(!labels.length){el.textContent='No values available for this chart.'}
+if({{chart|tojson}}==='budget_expenses'){
+  el.style.cssText='display:flex;flex-direction:column;gap:12px;min-width:840px;padding:16px;align-items:stretch;';
+  labels.forEach((label,i)=>{
+    let row=document.createElement('div');row.style.cssText='display:grid;grid-template-columns:330px 1fr;gap:12px;align-items:center;min-height:30px';
+    let legend=document.createElement('div');legend.textContent=label;legend.title=label;legend.style.cssText='font-size:12px;overflow-wrap:anywhere';row.appendChild(legend);
+    let bars=document.createElement('div');bars.style.cssText='display:flex;flex-direction:column;gap:3px';
+    [a[i],...(b===null?[]:[b[i]])].forEach((v,j)=>{
+      let outer=document.createElement('div');outer.style.cssText='display:flex;gap:8px;align-items:center';
+      let bar=document.createElement('div');bar.style.cssText='height:12px;background:'+(j?'#df9d63':'#3679ae')+';width:'+Math.max(0,Math.abs(v||0)/mx*80)+'%;min-width:'+(v?2:0)+'px';
+      bar.title=(j?{{legend2|tojson}}:{{legend1|tojson}})+': '+greek(v||0);
+      outer.appendChild(bar);let val=document.createElement('span');val.textContent=greek(v||0);val.style.cssText='font-size:10px;white-space:nowrap';outer.appendChild(val);bars.appendChild(outer)
+    });row.appendChild(bars);el.appendChild(row)
+  });
+}
+else labels.forEach((label,i)=>{let col=document.createElement('div');col.style.cssText='flex:1 0 0;display:flex;align-items:flex-end;justify-content:center;position:relative;height:260px;gap:2px;min-width:18px';
+let vals=b!==null?[a[i],b[i]]:[a[i]];vals.forEach((v,j)=>{let bar=document.createElement('div');bar.style.cssText='flex:1;min-width:5px;max-width:36px;background:'+(j?'#df9d63':'#3679ae')+';height:'+((v===null||!Number.isFinite(v))?0:Math.max(1,Math.abs(v)/mx*245))+'px;opacity:'+(v<0?'.45':'1');bar.title=label+' / '+(j?{{legend2|tojson}}:{{legend1|tojson}})+': '+(v===null?'Missing snapshot':greek(v));col.appendChild(bar)});
+let span=document.createElement('span');span.textContent=label;span.title=label;span.style.cssText='position:absolute;top:100%;width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;color:#657589;font-size:10px';col.appendChild(span);el.appendChild(col)});
+</script>{% endblock %}

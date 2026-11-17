@@ -1,1 +1,54 @@
-{% extends 'base.html' %}{% block title %}Course · Budget vs Actual{% endblock %}{% block content %}<form method="get" class="toolbar">Year <input type="number" name="year" value="{{year}}"><button>View</button></form><div class="card table-wrap"><table><thead><tr><th>Kind</th><th>Category</th><th>Planned</th><th>Actual</th><th>Difference</th></tr></thead><tbody>{% for r in rows %}<tr><td>{{r.kind}}</td><td>{{r.name}}</td><td>{{r.planned|eur}}</td><td>{{r.actual|eur}}</td><td>{{r.difference|eur}}</td></tr>{% endfor %}</tbody></table></div><p class="muted">Income difference = Actual − Planned. Expense difference = Planned − Actual. Investment cash flows are not automatically assigned to budget categories.</p>{% endblock %}
+{% extends 'base.html' %}
+{% block title %}Course · Budget vs Actual{% endblock %}
+{% block content %}
+<style>
+.course-equation {text-align:center; padding:16px 20px; font-size:1.02rem; font-weight:650; background:#eff5fb; border:1px solid #d5e4f0; border-radius:10px; margin:14px 0 18px;}
+.course-summary {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin-bottom:18px;}
+.course-summary .card {margin:0;}
+.course-summary h2 {margin:0 0 14px; font-size:1.13rem;}
+.course-summary-line {display:flex; justify-content:space-between; align-items:baseline; gap:14px; padding:9px 0; border-top:1px solid #edf1f5;}
+.course-summary-line strong {font-size:1.13rem; font-variant-numeric:tabular-nums; white-space:nowrap;}
+.course-positive {color:#17803b !important;}
+.course-negative {color:#bd303b !important;}
+.course-difference {font-variant-numeric:tabular-nums; font-weight:700;}
+.course-number {white-space:nowrap; font-variant-numeric:tabular-nums;}
+.course-section-title {margin:22px 0 8px;}
+@media(max-width:650px){.course-summary {grid-template-columns:1fr;}.course-equation{font-size:.93rem;}}
+</style>
+<form method="get" class="toolbar">
+<label for="course-year">Year</label>
+<select id="course-year" name="year">{% for y in years %}<option value="{{y}}" {{'selected' if year==y else ''}}>{{y}}</option>{% endfor %}</select>
+<button type="submit">View</button>
+</form>
+<div class="course-equation">Unregistered expenses = Opening balance − Closing balance + Registered income − Registered expenses</div>
+<div class="course-summary">
+{% for kind,label in [('income','Income'),('expense','Registered expenses')] %}
+<div class="card">
+<h2>{{label}} · {{year}}</h2>
+{% for key,title in [('planned','Planned'),('actual','Actual'),('difference','Difference')] %}
+<div class="course-summary-line">
+<span>{{title}}</span>
+<strong{% if key=='difference' %} class="course-difference {{'course-positive' if summary[kind][key]>0 else 'course-negative'}}"{% endif %}>{{summary[kind][key]|eur}}</strong>
+</div>
+{% endfor %}
+</div>
+{% endfor %}
+</div>
+<h2 class="course-section-title">Income and expense categories</h2>
+<div class="card table-wrap">
+<table><thead><tr><th>Kind</th><th>Category</th><th>Planned</th><th>Actual</th><th>Difference</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr><td>{{'Income' if r.kind=='income' else 'Expense'}}</td><td>{{r.name}}</td><td class="course-number">{{r.planned|eur}}</td><td class="course-number">{{r.actual|eur}}</td><td class="course-number course-difference {{'course-positive' if r.difference>0 else 'course-negative'}}">{{r.difference|eur}}</td></tr>
+{% else %}<tr><td colspan="5" class="muted">No income or expense categories with budgets or transactions for this year.</td></tr>{% endfor %}
+</tbody></table></div>
+<h2 class="course-section-title">Expense parent-category totals</h2>
+<div class="card table-wrap">
+<table><thead><tr><th>Parent category</th><th>Planned</th><th>Actual</th><th>Difference</th></tr></thead>
+<tbody>
+{% for r in expense_parent_rows %}
+<tr><td>{{r.name}}</td><td class="course-number">{{r.planned|eur}}</td><td class="course-number">{{r.actual|eur}}</td><td class="course-number course-difference {{'course-positive' if r.difference>0 else 'course-negative'}}">{{r.difference|eur}}</td></tr>
+{% else %}<tr><td colspan="4" class="muted">No expense parent categories.</td></tr>{% endfor %}
+</tbody></table></div>
+<p class="muted">Income difference = Actual − Planned. Expense difference = Planned − Actual. Parent totals are summaries of their child categories and are excluded from the top summary boxes. Investment cash flows are not automatically assigned to budget categories.</p>
+{% endblock %}

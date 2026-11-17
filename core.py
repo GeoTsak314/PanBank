@@ -1,6 +1,5 @@
-# PanBank Web v4.0.2 — Financial engine (by G. Tsakalos)
-
-
+# PanBank Web v4.2 — Financial engine 
+# (adapted from PanBank v3.2.17 by G. Tsakalos)
 from __future__ import annotations
 import calendar, csv, json, os, re, sqlite3
 from datetime import date,datetime,timedelta
@@ -193,7 +192,7 @@ MODELS = {
  'Investment transactions':('investments',[('tx_date','Date','date'),('asset_id','Asset','asset'),('action','Action','action'),('units','Units','decimal'),('unit_price','Unit price (€)','decimal'),('fees','Fees (€)','money'),('notes','Notes','text')]),
  'Investment valuations':('valuations',[('value_date','Date','date'),('asset_id','Asset','asset'),('unit_price','Unit price (€)','decimal')]),
  'Debts':('debts',[('name','Description','text'),('kind','Type','debt_type'),('total','Total owed (€)','money'),('installments','No. of installments','integer'),('first_due','First due date','date'),('notes','Notes','text')]),
- 'Debt payments':('debt_payments',[('debt_id','Debt','debt'),('paid_date','Payment date','date'),('amount','Paid (€)','money'),('notes','Notes','text')]),
+ 'Debt payments':('debt_payments',[('debt_id','Debt','debt'),('paid_date','Payment date','date'),('amount','Paid (€)','money'),('paid_by_other','Paid by other','bool'),('notes','Notes','text')]),
  'Categories':('categories',[('kind','Group type','category_kind'),('name','Category name','text'),('parent_id','Parent category','parent_category'),('active','Active','bool')]),
  'Annual budgets':('budgets',[('year','Year','year'),('kind','Group type','category_kind'),('category_id','Category','budget_category'),('amount','Annual planned (€)','money'),('notes','Notes','text')]),
 }
@@ -373,12 +372,37 @@ def add_month(d,delta):
     return date(y,m,min(d.day,calendar.monthrange(y,m)[1]))
 
 def debt_schedule(store):
+    '''Apply repayments to oldest outstanding scheduled installments, in cents.
+
+    Payments made on or before an installment date are allocated to the earliest
+    outstanding installment; late repayments clear arrears first. The due date
+    remains the contractual due date, not the date cash was paid.
+    '''
     entries=[]
-    for d in store.query('SELECT * FROM debts ORDER BY first_due'):
-        remaining=d['total']-store.scalar('SELECT COALESCE(SUM(amount),0) FROM debt_payments WHERE debt_id=?',(d['id'],))
-        count=max(1,d['installments']);each,extra=divmod(d['total'],count)
-        for i in range(count):entries.append((d['name'],d['kind'],add_month(date.fromisoformat(d['first_due']),i).isoformat(),each+(1 if i<extra else 0),max(0,remaining)))
+    for d in store.query('SELECT * FROM debts ORDER BY first_due,id'):
+        count=max(1,d['installments'])
+        each,extra=divmod(d['total'],count)
+        dues=[each+(1 if i<extra else 0) for i in range(count)]
+        paid=sum(r['amount'] for r in store.query('SELECT amount FROM debt_payments WHERE debt_id=?',(d['id'],)))
+        outstanding=max(0,d['total']-paid)
+        remaining_paid=paid
+        for i,scheduled in enumerate(dues):
+            applied=min(scheduled,remaining_paid)
+            remaining_paid-=applied
+            outstanding_installment=scheduled-applied
+            entries.append((d['name'],d['kind'],add_month(date.fromisoformat(d['first_due']),i).isoformat(),
+                            outstanding_installment,outstanding))
     return entries
+
+def debt_payment_cashflows(store,first,last):
+    '''Cash paid personally only; payments by third parties are excluded.''' 
+    rows=store.query('''SELECT p.id,p.paid_date,p.amount,p.notes,d.name AS debt_name
+        FROM debt_payments p JOIN debts d ON d.id=p.debt_id
+        WHERE p.paid_date BETWEEN ? AND ? AND COALESCE(p.paid_by_other,0)=0
+        ORDER BY p.paid_date DESC,p.id DESC''',(first,last))
+    return dict(expenses=sum(r['amount'] for r in rows),records=[
+        dict(id=r['id'],date=r['paid_date'],action='Payment',asset=r['debt_name'],amount=r['amount'],
+             kind='expenses',notes=r['notes'] or '') for r in rows])
 
 def portfolio(store):
     """FIFO lots per asset, fees included in lot costs, EUR values; sales above holdings flagged."""
@@ -426,7 +450,10 @@ def migrate_web(store):
         WHEN NEW.expense_allocation NOT IN ('normal','annual_12')
         OR (NEW.expense_allocation='annual_12' AND (NEW.kind!='expense' OR NEW.parent_id IS NULL))
         BEGIN SELECT RAISE(ABORT,'Only expense subcategories can be annualized'); END''')
-    store.run('''CREATE TRIGGER IF NOT EXISTS income_allocation_check_insert
+    payment_cols={r['name'] for r in store.query('PRAGMA table_info(debt_payments)')}
+    if 'paid_by_other' not in payment_cols:
+        store.run("ALTER TABLE debt_payments ADD COLUMN paid_by_other INTEGER NOT NULL DEFAULT 0 CHECK(paid_by_other IN (0,1))")
+        store.run('''CREATE TRIGGER IF NOT EXISTS income_allocation_check_insert
         BEFORE INSERT ON categories WHEN NEW.income_allocation NOT IN ('normal','annual_12')
         BEGIN SELECT RAISE(ABORT,'Invalid income allocation'); END''')
     store.run('''CREATE TRIGGER IF NOT EXISTS income_allocation_check_update
@@ -441,10 +468,13 @@ def allocated_yearly_cents(store,year):
     return sum(r['amount'] for r in rows)
 
 def allocated_yearly_expense_cents(store, year):
-    """Total expense transaction cents marked for 12-month allocation in a calendar year."""
+    """All expense subcategory transactions for the year, irrespective of legacy flags.
+
+    Expense parent groups contain aggregates only and are never counted directly.
+    """
     return store.scalar('''SELECT COALESCE(SUM(e.amount),0) FROM expenses e
         JOIN categories c ON c.id=e.category_id WHERE e.tx_date>=? AND e.tx_date<?
-        AND c.kind='expense' AND c.parent_id IS NOT NULL AND c.expense_allocation='annual_12' ''',
+        AND c.kind='expense' AND c.parent_id IS NOT NULL ''',
         (f'{year}-01-01',f'{year+1}-01-01'))
 
 def spread_month(total,month):
@@ -453,43 +483,44 @@ def spread_month(total,month):
     return q+(1 if month<=r else 0)
 
 def get_monthly(store,year,month):
+    '''Actual dated cash flows; optional allocation is REPORTING ONLY, not reconciliation.''' 
     first,last=month_bounds(year,month)
     op,cl=snapshot_boundary_dates(year,month)
     open_rows=snapshot_accounts_on(store,op);close_rows=snapshot_accounts_on(store,cl)
     opening=sum(x['amount'] for x in open_rows);closing=sum(x['amount'] for x in close_rows)
-    normal=store.scalar('''SELECT COALESCE(SUM(i.amount),0) FROM incomes i LEFT JOIN categories c ON c.id=i.category_id
-      WHERE i.tx_date BETWEEN ? AND ? AND COALESCE(c.income_allocation,'normal')!='annual_12' ''',(first,last))
-    actual=store.scalar('SELECT COALESCE(SUM(amount),0) FROM incomes WHERE tx_date BETWEEN ? AND ?',(first,last))
-    annual=spread_month(allocated_yearly_cents(store,year),month)
-    normal_exp=store.scalar('''SELECT COALESCE(SUM(e.amount),0) FROM expenses e
-      LEFT JOIN categories c ON c.id=e.category_id WHERE e.tx_date BETWEEN ? AND ?
-      AND COALESCE(c.expense_allocation,'normal')!='annual_12' ''',(first,last))
+    actual_income=store.scalar('SELECT COALESCE(SUM(amount),0) FROM incomes WHERE tx_date BETWEEN ? AND ?',(first,last))
     actual_exp=store.scalar('SELECT COALESCE(SUM(amount),0) FROM expenses WHERE tx_date BETWEEN ? AND ?',(first,last))
-    annual_exp=spread_month(allocated_yearly_expense_cents(store,year),month)
     inv=investment_cashflows(store,first,last)
-    total_income=normal+annual+inv['income'];total_exp=normal_exp+annual_exp+inv['expenses']
+    debt=debt_payment_cashflows(store,first,last)
+    total_income=actual_income+inv['income']
+    total_exp=actual_exp+inv['expenses']+debt['expenses']
+    # Retain analytical allocation figures for reports, without modifying cash totals.
+    annual_income=spread_month(allocated_yearly_cents(store,year),month)
+    annual_exp=spread_month(allocated_yearly_expense_cents(store,year),month)
     return dict(opening=opening,closing=closing,income=total_income,expenses=total_exp,
-       direct_income=normal+annual,actual_cash_income=actual+inv['income'],
-       normal_income=normal,allocated_income=annual,
-       investment_income=inv['income'],direct_expenses=normal_exp+annual_exp,
-       normal_expenses=normal_exp,allocated_expenses=annual_exp,
-       actual_cash_expenses=actual_exp+inv['expenses'],investment_expenses=inv['expenses'],
+       direct_income=actual_income,actual_cash_income=total_income,
+       normal_income=actual_income,allocated_income=annual_income,
+       investment_income=inv['income'],direct_expenses=actual_exp,
+       normal_expenses=actual_exp,allocated_expenses=annual_exp,
+       actual_cash_expenses=total_exp,investment_expenses=inv['expenses'],
+       debt_expenses=debt['expenses'],
        unregistered=opening-closing+total_income-total_exp,
        opening_n=len(open_rows),closing_n=len(close_rows),
        opening_date=op,closing_date=cl,opening_accounts={r['account_id'] for r in open_rows},
        closing_accounts={r['account_id'] for r in close_rows})
 
-def year_reconciliation(store,year):
+def year_reconciliation(store,year,as_of=None):
     """Year-to-date reconciled between Jan 1 and latest available first-of-month <= Jan 1 next year.
     No misleading sum of monthly missing-boundary results.
     """
-    start=f'{year}-01-01';end=f'{year+1}-01-01'
+    as_of=as_of or date.today()
+    start=f'{year}-01-01';end=min(f'{year+1}-01-01',as_of.replace(day=1).isoformat())
     dates=[r['snapshot_date'] for r in store.query('''SELECT DISTINCT snapshot_date FROM snapshots
        WHERE snapshot_date>? AND snapshot_date<=? AND substr(snapshot_date,9,2)='01'
        ORDER BY snapshot_date DESC''',(start,end))]
     opening=snapshot_accounts_on(store,start)
     if not opening or not dates:
-        return dict(complete=False,reason='Missing Jan 1 opening or subsequent first-of-month closing snapshot', start=start,end=None)
+        return dict(complete=False,reason='Missing Jan 1 opening or completed-month closing snapshot', start=start,end=None)
     boundary=dates[0]; closing=snapshot_accounts_on(store,boundary)
     if not closing:
         return dict(complete=False,reason='Closing snapshot missing',start=start,end=boundary)
